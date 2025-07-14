@@ -17,6 +17,10 @@ using json = nlohmann::json;
 // Forward declaration
 std::string execute_shell_command(const std::string& command);
 
+//=============================================================================
+// HELP/USAGE SECTION
+//=============================================================================
+
 static void print_usage(int argc, char ** argv) {
     (void)argc;  // Suppress unused parameter warning
     (void)argv;  // Suppress unused parameter warning
@@ -24,26 +28,40 @@ static void print_usage(int argc, char ** argv) {
     printf("\n");
 }
 
+//=============================================================================
+// SHELL COMMAND EXECUTION SECTION
+//=============================================================================
+
 // Real function to execute shell commands
+// Uses popen() to run system commands and capture their output
+// Returns the command output as a string
 std::string execute_shell_command(const std::string& command) {
     std::array<char, 128> buffer;
     std::string result;
-    
+
     // Use popen to execute the command
     std::unique_ptr<FILE, int(*)(FILE*)> pipe(popen(command.c_str(), "r"), pclose);
     if (!pipe) {
         return "Error: Failed to execute command";
     }
-    
+
     // Read the output
     while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
         result += buffer.data();
     }
-    
+
     return result;
 }
 
+//=============================================================================
+// MAIN PROGRAM ENTRY POINT
+//=============================================================================
+
 int main(int argc, char ** argv) {
+    //=========================================================================
+    // CONFIGURATION VARIABLES SECTION
+    //=========================================================================
+
     // path to the model gguf file
     std::string model_path;
     // prompt to generate text from
@@ -59,10 +77,15 @@ int main(int argc, char ** argv) {
     // confirmation flag
     bool confirm_commands = false;
 
+    //=========================================================================
+    // COMMAND LINE ARGUMENT PARSING SECTION
+    //=========================================================================
+
     // parse command line arguments
     {
         int i = 1;
         for (; i < argc; i++) {
+            // Model file path argument
             if (strcmp(argv[i], "-m") == 0) {
                 if (i + 1 < argc) {
                     model_path = argv[++i];
@@ -70,14 +93,18 @@ int main(int argc, char ** argv) {
                     print_usage(argc, argv);
                     return 1;
                 }
-            } else if (strcmp(argv[i], "-p") == 0) {
+            }
+            // Prompt argument
+            else if (strcmp(argv[i], "-p") == 0) {
                 if (i + 1 < argc) {
                     prompt = argv[++i];
                 } else {
                     print_usage(argc, argv);
                     return 1;
                 }
-            } else if (strcmp(argv[i], "-n") == 0) {
+            }
+            // Number of tokens to predict argument
+            else if (strcmp(argv[i], "-n") == 0) {
                 if (i + 1 < argc) {
                     try {
                         n_predict = std::stoi(argv[++i]);
@@ -89,7 +116,9 @@ int main(int argc, char ** argv) {
                     print_usage(argc, argv);
                     return 1;
                 }
-            } else if (strcmp(argv[i], "-ngl") == 0) {
+            }
+            // GPU layers argument
+            else if (strcmp(argv[i], "-ngl") == 0) {
                 if (i + 1 < argc) {
                     try {
                         ngl = std::stoi(argv[++i]);
@@ -101,44 +130,59 @@ int main(int argc, char ** argv) {
                     print_usage(argc, argv);
                     return 1;
                 }
-            } else if (strcmp(argv[i], "--chat-template-file") == 0) {
+            }
+            // Chat template file argument
+            else if (strcmp(argv[i], "--chat-template-file") == 0) {
                 if (i + 1 < argc) {
                     chat_template_file = argv[++i];
                 } else {
                     print_usage(argc, argv);
                     return 1;
                 }
-            } else if (strcmp(argv[i], "--grammar") == 0) {
+            }
+            // Grammar constraint argument
+            else if (strcmp(argv[i], "--grammar") == 0) {
                 if (i + 1 < argc) {
                     grammar = argv[++i];
                 } else {
                     print_usage(argc, argv);
                     return 1;
                 }
-            } else if (strcmp(argv[i], "--confirm") == 0) {
+            }
+            // Command confirmation flag
+            else if (strcmp(argv[i], "--confirm") == 0) {
                 confirm_commands = true;
-            } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            }
+            // Help argument
+            else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
                 print_usage(argc, argv);
                 return 0;
-            } else {
+            }
+            // Unknown argument
+            else {
                 fprintf(stderr, "Unknown argument: %s\n", argv[i]);
                 print_usage(argc, argv);
                 return 1;
             }
         }
-        
+
+        // Validate required arguments
         if (model_path.empty()) {
             fprintf(stderr, "Error: Model file (-m) is required\n");
             print_usage(argc, argv);
             return 1;
         }
-        
+
         if (prompt.empty()) {
             fprintf(stderr, "Error: Prompt (-p) is required\n");
             print_usage(argc, argv);
             return 1;
         }
     }
+
+    //=========================================================================
+    // CONFIGURATION DISPLAY SECTION
+    //=========================================================================
 
     printf("Simple Function Call Example\n");
     printf("Model: %s\n", model_path.c_str());
@@ -156,6 +200,10 @@ int main(int argc, char ** argv) {
     }
     printf("\n");
 
+    //=========================================================================
+    // LLAMA.CPP MODEL INITIALIZATION SECTION
+    //=========================================================================
+
     // load dynamic backends
     ggml_backend_load_all();
 
@@ -170,7 +218,12 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    // Get vocabulary from the model
     const llama_vocab * vocab = llama_model_get_vocab(model);
+
+    //=========================================================================
+    // LLAMA.CPP CONTEXT INITIALIZATION SECTION
+    //=========================================================================
 
     // initialize the context
     llama_context_params ctx_params = llama_context_default_params();
@@ -188,10 +241,15 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    //=========================================================================
+    // FUNCTION CALLING SYSTEM SETUP SECTION
+    //=========================================================================
+
     // Initialize chat templates for function calling
     common_chat_templates_ptr chat_templates = common_chat_templates_init(model, chat_template_file);
 
     // Define available functions/tools - single shell command tool
+    // This defines what functions the LLM can call and their parameters
     std::vector<common_chat_tool> tools = {
         {
             "shell_command",
@@ -209,7 +267,12 @@ int main(int argc, char ** argv) {
         }
     };
 
+    //=========================================================================
+    // CHAT MESSAGE INITIALIZATION SECTION
+    //=========================================================================
+
     // Create chat messages
+    // This sets up the initial conversation context
     std::vector<common_chat_msg> messages = {
         {
             "system",
@@ -231,6 +294,10 @@ int main(int argc, char ** argv) {
         }
     };
 
+    //=========================================================================
+    // CHAT TEMPLATE APPLICATION SECTION
+    //=========================================================================
+
     // Set up chat template inputs with tools
     common_chat_templates_inputs inputs;
     inputs.messages = messages;
@@ -241,6 +308,10 @@ int main(int argc, char ** argv) {
 
     // Apply chat template
     auto chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
+
+    //=========================================================================
+    // PROMPT TOKENIZATION SECTION
+    //=========================================================================
 
     // Tokenize the prompt
     const int n_prompt = -llama_tokenize(vocab, chat_params.prompt.c_str(), chat_params.prompt.size(), NULL, 0, true, true);
@@ -255,6 +326,10 @@ int main(int argc, char ** argv) {
     // prepare a batch for the prompt
     llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
 
+    //=========================================================================
+    // SAMPLER INITIALIZATION SECTION
+    //=========================================================================
+
     // initialize the sampler
     auto sparams = llama_sampler_chain_default_params();
     sparams.no_perf = false;
@@ -262,12 +337,16 @@ int main(int argc, char ** argv) {
 
     llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
 
+    //=========================================================================
+    // MAIN GENERATION LOOP SECTION
+    //=========================================================================
+
     // main loop
-    const auto t_main_start = ggml_time_us();
     int n_decode = 0;
     llama_token new_token_id;
     std::string response_text;
 
+    // Main text generation loop - processes tokens one by one
     for (int n_pos = 0; n_pos + batch.n_tokens < n_prompt + n_predict; ) {
         // evaluate the current batch with the transformer model
         if (llama_decode(ctx, batch)) {
@@ -286,6 +365,7 @@ int main(int argc, char ** argv) {
                 break;
             }
 
+            // Convert token to text and display it
             char buf[128];
             int n = llama_token_to_piece(vocab, new_token_id, buf, sizeof(buf), 0, true);
             if (n < 0) {
@@ -306,12 +386,20 @@ int main(int argc, char ** argv) {
 
     printf("\n\n");
 
+    //=========================================================================
+    // FUNCTION CALL PARSING SECTION
+    //=========================================================================
+
     // Parse the response to check for function calls
     common_chat_syntax syntax;
     syntax.format = chat_params.format;
     syntax.parse_tool_calls = true;
-    
+
     common_chat_msg parsed_response = common_chat_parse(response_text, false, syntax);
+
+    //=========================================================================
+    // FUNCTION CALL EXECUTION SECTION
+    //=========================================================================
 
     // Handle function calls if any
     if (!parsed_response.tool_calls.empty()) {
@@ -319,16 +407,16 @@ int main(int argc, char ** argv) {
         for (const auto& tool_call : parsed_response.tool_calls) {
             printf("  Function: %s\n", tool_call.name.c_str());
             printf("  Arguments: %s\n", tool_call.arguments.c_str());
-            
+
             // Execute the function
             if (tool_call.name == "shell_command") {
                 try {
                     // Parse JSON arguments
                     json args = json::parse(tool_call.arguments);
                     std::string command = args["command"];
-                    
+
                     printf("  Command: %s\n", command.c_str());
-                    
+
                     // Ask for confirmation if enabled
                     if (confirm_commands) {
                         printf("  Execute this command? (y/N): ");
@@ -339,88 +427,11 @@ int main(int argc, char ** argv) {
                             continue;
                         }
                     }
-                    
+
                     // Execute the command
                     std::string result = execute_shell_command(command);
                     printf("  Result:\n%s", result.c_str());
-                    
-                    // Add the result to the conversation and continue
-                    messages.push_back({
-                        "assistant",
-                        response_text,
-                        {},  // content_parts
-                        {},  // tool_calls
-                        "",  // reasoning_content
-                        "",  // tool_name
-                        ""   // tool_call_id
-                    });
-                    messages.push_back({
-                        "tool",
-                        result,
-                        {},  // content_parts
-                        {},  // tool_calls
-                        "",  // reasoning_content
-                        "",  // tool_name
-                        tool_call.id
-                    });
-                    
-                    // Continue the conversation with the result
-                    printf("\nContinuing conversation with command result...\n");
-                    
-                    // Set up new chat template inputs
-                    common_chat_templates_inputs new_inputs;
-                    new_inputs.messages = messages;
-                    new_inputs.tools = tools;
-                    new_inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_AUTO;
-                    new_inputs.add_generation_prompt = true;
-                    new_inputs.use_jinja = true;
-                    
-                    // Apply chat template for continuation
-                    auto new_chat_params = common_chat_templates_apply(chat_templates.get(), new_inputs);
-                    
-                    // Tokenize the new prompt
-                    const int n_new_prompt = -llama_tokenize(vocab, new_chat_params.prompt.c_str(), new_chat_params.prompt.size(), NULL, 0, true, true);
-                    std::vector<llama_token> new_prompt_tokens(n_new_prompt);
-                    if (llama_tokenize(vocab, new_chat_params.prompt.c_str(), new_chat_params.prompt.size(), new_prompt_tokens.data(), new_prompt_tokens.size(), true, true) < 0) {
-                        fprintf(stderr, "%s: error: failed to tokenize the continuation prompt\n", __func__);
-                        return 1;
-                    }
-                    
-                    // Continue generation
-                    batch = llama_batch_get_one(new_prompt_tokens.data(), new_prompt_tokens.size());
-                    std::string continuation_text;
-                    
-                    for (int n_pos = 0; n_pos + batch.n_tokens < n_new_prompt + n_predict; ) {
-                        if (llama_decode(ctx, batch)) {
-                            fprintf(stderr, "%s : failed to eval continuation, return code %d\n", __func__, 1);
-                            return 1;
-                        }
-                        
-                        n_pos += batch.n_tokens;
-                        
-                        new_token_id = llama_sampler_sample(smpl, ctx, -1);
-                        
-                        if (llama_vocab_is_eog(vocab, new_token_id)) {
-                            break;
-                        }
-                        
-                        char buf[128];
-                        int n = llama_token_to_piece(vocab, new_token_id, buf, sizeof(buf), 0, true);
-                        if (n < 0) {
-                            fprintf(stderr, "%s: error: failed to convert token to piece\n", __func__);
-                            return 1;
-                        }
-                        std::string s(buf, n);
-                        continuation_text += s;
-                        printf("%s", s.c_str());
-                        fflush(stdout);
-                        
-                        batch = llama_batch_get_one(&new_token_id, 1);
-                        n_decode += 1;
-                    }
-                    
-                    printf("\n");
-                    
+
                 } catch (const std::exception& e) {
                     printf("  Error parsing arguments: %s\n", e.what());
                 }
@@ -430,16 +441,11 @@ int main(int argc, char ** argv) {
         printf("Response: %s\n", parsed_response.content.c_str());
     }
 
-    const auto t_main_end = ggml_time_us();
+    //=========================================================================
+    // CLEANUP SECTION
+    //=========================================================================
 
-    fprintf(stderr, "%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n",
-            __func__, n_decode, (t_main_end - t_main_start) / 1000000.0f, n_decode / ((t_main_end - t_main_start) / 1000000.0f));
-
-    fprintf(stderr, "\n");
-    llama_perf_sampler_print(smpl);
-    llama_perf_context_print(ctx);
-    fprintf(stderr, "\n");
-
+    // Clean up resources
     llama_sampler_free(smpl);
     llama_free(ctx);
     llama_model_free(model);
