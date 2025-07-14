@@ -37,10 +37,9 @@ The LLM has access to a single tool:
 ```
 
 ### Basic Usage
-```bash
+```
 ./simple-function-call -m model.gguf -p "your request here"
 ```
-
 ### Command Line Arguments
 - `--jinja` Is enabled by default
 - `-m model.gguf` - Model file path (REQUIRED)
@@ -53,8 +52,9 @@ The LLM has access to a single tool:
 
 ### Examples
 
-```bash
+
 # List files in current directory
+```
 ./simple-function-call -m llama-3.2-1b.gguf -p "list all files in this directory" # I've had success even with this small model but I think it has trouble solving complex tasks it can still generate proper JSON for execution
 
 {"name": "shell_command", "parameters": {"command": "ls -l"}}
@@ -122,9 +122,11 @@ Continuing conversation with command result...
 /usr/lib/libc.so.6(__libc_start_main+0x89) [0x7fdfb4112769]
 ./build/bin/simple-function-call(+0x37615) [0x557f2b78b615]
 Aborted (core dumped)
-
+```
 
 # Check system information
+
+```
 ./simple-function-call -m llama-2-7b.gguf -p "check the current time" # might produce some JSON
 {
     "type": "function",
@@ -173,8 +175,9 @@ Response:
     } # The command in tried to use was probably too complex for the actual tool
 }
 main: decoded 134 tokens in 5.85 s, speed: 22.89 t/s # A better parser bigger model should produce better results
-
-# You'll have less of these types of problems but you can't still nudge the smaller ones, if you have some knowledge you can always tell it to run commands directly but it defeats the purpose of it a bit, it would be good with some Speech to Text system where you wouldn't have to type but just say what you want the computer to do
+```
+# You'll have less of these types of problems with bigger models but you can't still nudge the smaller ones, if you have some knowledge you can always tell it to run commands directly but it defeats the purpose of it a bit, it would be good with some Speech to Text system where you wouldn't have to type but just say what you want the computer to do
+```
 ./simple-function-call -m llama-3.2-1b-instruct.gguf -p "Check the current date" # And it will run the date command
 
 {"type": "function", "name": "shell_command", "parameters": {"command": "date"}}
