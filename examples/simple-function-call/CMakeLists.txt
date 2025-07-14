@@ -1,8 +1,8 @@
-set(TARGET simple-function-call)
+set(TARGET llama-simple-function-call)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(${TARGET} llama-simple-function-call.cpp)
+add_executable(${TARGET} simple-function-call.cpp)
 install(TARGETS ${TARGET} RUNTIME)
 target_link_libraries(${TARGET} PRIVATE llama common ${CMAKE_THREAD_LIBS_INIT})
 target_compile_features(${TARGET} PRIVATE cxx_std_17)
