@@ -405,6 +405,13 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                     "[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))*((?=[\\p{L}])([^A-Z]))+(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|[^\\r\\n\\p{L}\\p{N}]?((?=[\\p{L}])([^a-z]))+((?=[\\p{L}])([^A-Z]))*(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])?|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
                 };
                 break;
+            case LLAMA_VOCAB_PRE_TYPE_KIMI_K2:
+                regex_exprs = {
+                    // K2 trigger pattern - this will activate the custom K2 handler in unicode.cpp
+                    // The custom handler implements all K2 patterns with proper Han character exclusion
+                    "\\p{Han}+",
+                };
+                break;
             case LLAMA_VOCAB_PRE_TYPE_SUPERBPE:
                 regex_exprs = {
                     "\\p{N}+",
@@ -1954,6 +1961,10 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 tokenizer_pre == "hunyuan") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_HUNYUAN;
                 clean_spaces = false;
+            } else if (
+                tokenizer_pre == "kimi-k2") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_KIMI_K2;
+                clean_spaces = false;
             } else {
                 throw std::runtime_error(format("unknown pre-tokenizer type: '%s'", tokenizer_pre.c_str()));
             }
@@ -3343,6 +3354,10 @@ llama_token llama_vocab::token_fim_sep() const {
     return pimpl->special_fim_sep_id;
 }
 
+llama_token llama_vocab::token_mask() const {
+    return pimpl->special_mask_id;
+}
+
 bool llama_vocab::get_add_space_prefix() const {
     return pimpl->add_space_prefix;
 }
@@ -3581,6 +3596,10 @@ llama_token llama_vocab_fim_rep(const struct llama_vocab * vocab) {
 
 llama_token llama_vocab_fim_sep(const struct llama_vocab * vocab) {
     return vocab->token_fim_sep();
+}
+
+llama_token llama_vocab_mask(const struct llama_vocab* vocab) {
+    return vocab->token_mask();
 }
 
 // deprecated
