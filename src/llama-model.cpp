@@ -10463,7 +10463,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
         const int64_t n_seq_tokens = ubatch.n_seq_tokens;
 
         GGML_ASSERT(n_seqs != 0);
-        GGML_ASSERT(ubatch.equal_seqs);
+        GGML_ASSERT(ubatch.equal_seqs());
         GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
 
         ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
@@ -10598,7 +10598,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
         const int64_t n_seq_tokens = ubatch.n_seq_tokens;
 
         GGML_ASSERT(n_seqs != 0);
-        GGML_ASSERT(ubatch.equal_seqs);
+        GGML_ASSERT(ubatch.equal_seqs());
         GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
 
         ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
@@ -15870,7 +15870,7 @@ private:
         const int64_t n_seq_tokens = ubatch.n_seq_tokens;
 
         GGML_ASSERT(n_seqs != 0);
-        GGML_ASSERT(ubatch.equal_seqs);
+        GGML_ASSERT(ubatch.equal_seqs());
         GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
 
         ggml_tensor * conv_states_all = mctx_cur->get_r_l(il);
@@ -16554,7 +16554,19 @@ struct llm_build_lfm2 : public llm_graph_context {
                                         ggml_tensor        * cur,
                                         llm_graph_input_rs * inp_recr,
                                         int                il) {
-        const auto * mctx_cur = static_cast<const llama_memory_hybrid_context *>(mctx)->get_recr();
+        const auto *   mctx_cur     = static_cast<const llama_memory_hybrid_context *>(mctx)->get_recr();
+        const uint32_t kv_head      = mctx_cur->get_head();
+        const int64_t  n_seq_tokens = ubatch.n_seq_tokens;
+        const int64_t  n_seqs       = ubatch.n_seqs;
+        GGML_ASSERT(n_seqs != 0);
+        GGML_ASSERT(ubatch.equal_seqs());
+        GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
+
+        GGML_ASSERT(hparams.n_shortconv_l_cache > 1);
+        const uint32_t d_conv = hparams.n_shortconv_l_cache - 1;
+
+        // {n_embd, n_tokens} => {n_embd, n_seq_tokens, n_seqs}
+        cur = ggml_reshape_3d(ctx0, cur, cur->ne[0], n_seq_tokens, n_seqs);
 
         auto * bcx = build_lora_mm(model.layers[il].shortconv.in_proj, cur);
         cb(bcx, "model.layers.{}.conv.in_proj", il);
@@ -16562,38 +16574,48 @@ struct llm_build_lfm2 : public llm_graph_context {
         constexpr auto n_chunks = 3;
         GGML_ASSERT(bcx->ne[0] % n_chunks == 0);
         auto const chunk_size = bcx->ne[0] / n_chunks;
-        auto * b = ggml_view_2d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->nb[1], 0 * chunk_size * ggml_element_size(bcx));
-        auto * c = ggml_view_2d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->nb[1], 1 * chunk_size * ggml_element_size(bcx));
-        auto * x = ggml_view_2d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->nb[1], 2 * chunk_size * ggml_element_size(bcx));
+        auto * b = ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2], 0*chunk_size*ggml_element_size(bcx));
+        auto * c = ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2], 1*chunk_size*ggml_element_size(bcx));
+        auto * x = ggml_view_3d(ctx0, bcx, chunk_size, bcx->ne[1], bcx->ne[2], bcx->nb[1], bcx->nb[2], 2*chunk_size*ggml_element_size(bcx));
 
         auto * bx = ggml_transpose(ctx0, ggml_mul(ctx0, b, x));
 
-        // read conv state directly, with build_rs generation is slower
-        ggml_tensor * conv_state = mctx_cur->get_r_l(il);
-        const int64_t n_seqs  = ubatch.n_seqs;
-        ggml_tensor * conv = build_rs(inp_recr, gf, conv_state, hparams.n_embd_r(), n_seqs);
-        conv = ggml_reshape_3d(ctx0, conv_state, hparams.n_shortconv_l_cache - 1, hparams.n_embd, n_seqs);
+        // read conv state
+        auto * conv_state = mctx_cur->get_r_l(il);
+        auto * conv_rs    = build_rs(inp_recr, gf, conv_state, hparams.n_embd_r(), n_seqs);
+        auto * conv       = ggml_reshape_3d(ctx0, conv_rs, d_conv, hparams.n_embd, n_seqs);
 
         bx = ggml_concat(ctx0, conv, bx, 0);
         GGML_ASSERT(bx->ne[0] > conv->ne[0]);
 
-        auto * new_conv = ggml_view_2d(ctx0, bx, conv->ne[0], bx->ne[1], bx->nb[1], (bx->ne[0] - conv->ne[0]) * ggml_element_size(bx));
+        // last d_conv columns is a new conv state
+        auto * new_conv = ggml_view_3d(ctx0, bx, conv->ne[0], bx->ne[1], bx->ne[2], bx->nb[1], bx->nb[2], (bx->ne[0] - conv->ne[0])*ggml_element_size(bx));
         GGML_ASSERT(ggml_are_same_shape(conv, new_conv));
 
-        // write conv state
-        ggml_build_forward_expand(gf, ggml_cpy(ctx0, new_conv, conv_state));
+        // write new conv conv state
+        ggml_build_forward_expand(
+                gf,
+                ggml_cpy(
+                    ctx0,
+                    new_conv,
+                    ggml_view_1d(
+                        ctx0,
+                        conv_state,
+                        ggml_nelements(new_conv),
+                        kv_head*d_conv*n_embd*ggml_element_size(new_conv)
+                        )
+                    )
+                );
 
         auto * conv_kernel = model.layers[il].shortconv.conv;
-        GGML_ASSERT(hparams.n_shortconv_l_cache > 0);
-
-        // construct ssm_conv op
-        ggml_tensor * conv_out = ggml_ssm_conv(ctx0, bx, conv_kernel);
+        auto * conv_out = ggml_ssm_conv(ctx0, bx, conv_kernel);
         cb(conv_out, "model.layers.{}.conv.conv", il);
 
         auto * y = ggml_mul(ctx0, c, conv_out);
-
         y = build_lora_mm(model.layers[il].shortconv.out_proj, y);
         cb(y, "model.layers.{}.conv.out_proj", il);
+        // {n_embd, n_seq_tokens, n_seqs} => {n_embd, n_tokens}
+        y = ggml_reshape_2d(ctx0, y, y->ne[0], n_seq_tokens * n_seqs);
 
         return y;
     }
@@ -16706,10 +16728,10 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
     return res;
 }
 
-llm_graph_result_ptr llama_model::build_graph(
-        const llm_graph_params & params,
-                   ggml_cgraph * gf,
-                llm_graph_type   type) const {
+ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
+    // TODO: temporary - will refactor this to keep the "gf" instance in the llm_graph_context and avoid passing it everywhere
+    auto * gf = params.res->get_gf();
+
     std::unique_ptr<llm_graph_context> llm;
 
     switch (arch) {
@@ -16929,7 +16951,7 @@ llm_graph_result_ptr llama_model::build_graph(
             } break;
         case LLM_ARCH_T5:
             {
-                switch (type) {
+                switch (params.gtype) {
                     case LLM_GRAPH_TYPE_ENCODER:
                         llm = std::make_unique<llm_build_t5_enc>(*this, params, gf);
                         break;
@@ -17035,7 +17057,7 @@ llm_graph_result_ptr llama_model::build_graph(
     // add on pooling layer
     llm->build_pooling(gf, cls, cls_b, cls_out, cls_out_b);
 
-    return std::move(llm->res);
+    return llm->res->get_gf();
 }
 
 //
