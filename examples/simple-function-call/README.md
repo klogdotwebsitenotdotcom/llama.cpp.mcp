@@ -200,7 +200,7 @@ Response: {
     }
 }
 ```
-### You'll have less of these types of problems with bigger models but you can't still nudge the smaller ones, if you have some knowledge you can always tell it to run commands directly but it defeats the purpose of it a bit, it would be good with some Speech to Text system where you wouldn't have to type but just say what you want the computer to do
+### You'll have less of these types of problems with bigger models but you CAN still nudge the smaller ones, if you have some knowledge you can always tell it to run commands directly but it defeats the purpose of it a bit, it would be good with some Speech to Text system where you wouldn't have to type but just say what you want the computer to do
 ```
 ./build/bin/llama-simple-function-call -m ~/Downloads/Llama-3.2-1B-Instruct-Q6_K.gguf -p "Check the current date"
 Simple Function Call Example
